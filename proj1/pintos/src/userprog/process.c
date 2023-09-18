@@ -221,6 +221,25 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  /*TODO: parse file name*/
+  char *argv[100];
+  int argc = 0;
+  char curString[100];
+  char *nextString;
+
+  strlcpy(curString, file_name, strlen(file_name) + 1);
+
+  char *tmp;
+
+  while(1){
+    tmp = strtok_r(curString, " ", &nextString); //change first place of delim = " " to '\0' character 
+    printf("Token : %s\n", tmp);
+    if(tmp == NULL)   //end of string  break
+      break;   
+    argv[argc++] = tmp;
+    tmp = strtok_r(NULL, " ", &nextString); //get rid of '\0' converted from first strtok_r
+  }
+  
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -304,6 +323,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
+
+  /*TODO: construct stack*/
+  
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
