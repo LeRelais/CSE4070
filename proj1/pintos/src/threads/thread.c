@@ -98,6 +98,9 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  initial_thread->parentID = -1;
+  list_init(&initial_thread->child);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -467,6 +470,15 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+  /*feature added to implement wait*/
+  t->ExitStatus = 0;
+  t->waitStatus = 0;
+  t->parentID = running_thread()->tid;
+  list_init(&t->child);
+  list_push_back(&running_thread()->child, &t->childElem);
+  sema_init(&t->childSemaphore, 0);
+  sema_init(&t->MemSemaphore, 0);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

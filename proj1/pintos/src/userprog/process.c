@@ -37,6 +37,11 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+  
+  char *savePtr;
+  file_name = strtok_r(file_name, " ", &savePtr);
+  if(!filesys_open(file_name))
+    return -1;
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -53,7 +58,6 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
-
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -61,11 +65,12 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
-
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -86,9 +91,34 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  //for(int i = 0; i < 1000000000; i++);
+  //return -1;
+
+  struct list_elem *listElem = list_begin(&thread_current()->child);
+  struct thread *tmp;
+  struct thread *target = NULL;
+  int exitStatus = 0;
+
+  while(1){
+    if(listElem == list_end(&thread_current()->child))
+      break;
+    
+    tmp = list_entry(listElem, struct thread, childElem);
+    
+    if(child_tid == tmp->tid){
+      sema_down(&tmp->childSemaphore);
+      exitStatus = tmp->ExitStatus; 
+      list_remove(&tmp->childElem);
+      sema_up(&tmp->MemSemaphore);
+      break;
+    }
+    listElem = list_next(listElem);
+  }
+  if(!exitStatus)
+    return -1;
+  return exitStatus;
 }
 
 /* Free the current process's resources. */
@@ -114,6 +144,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  sema_up(&cur->childSemaphore);
+  sema_down(&cur->MemSemaphore);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -221,30 +254,27 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
-  /*TODO: parse file name*/
-  char *argv[100];
-  int argc = 0;
+ /*TODO: parse file name*/
   char curString[100];
   char *nextString;
-
+  char *argv[100];
+  int argc = 0;
   strlcpy(curString, file_name, strlen(file_name) + 1);
 
-  char *tmp;
+  char *tmp = strtok_r(curString, " ", &nextString);
+  char *fileString = tmp;
 
-  while(1){
-    tmp = strtok_r(curString, " ", &nextString); //change first place of delim = " " to '\0' character 
-    printf("Token : %s\n", tmp);
-    if(tmp == NULL)   //end of string  break
-      break;   
+  while(tmp != NULL){
     argv[argc++] = tmp;
-    tmp = strtok_r(NULL, " ", &nextString); //get rid of '\0' converted from first strtok_r
+    tmp = strtok_r(NULL, " ", &nextString);
   }
-  
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  //printf("\n\n\n %s %s\n\n\n", fileString);
+  file = filesys_open (fileString);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", fileString);
       goto done; 
     }
 
@@ -260,7 +290,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       printf ("load: %s: error loading executable\n", file_name);
       goto done; 
     }
-
+ 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
   for (i = 0; i < ehdr.e_phnum; i++) 
@@ -288,6 +318,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
         case PT_SHLIB:
           goto done;
         case PT_LOAD:
+          
           if (validate_segment (&phdr, file)) 
             {
               bool writable = (phdr.p_flags & PF_W) != 0;
@@ -295,6 +326,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
               uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
               uint32_t page_offset = phdr.p_vaddr & PGMASK;
               uint32_t read_bytes, zero_bytes;
+              
               if (phdr.p_filesz > 0)
                 {
                   /* Normal segment.
@@ -310,6 +342,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
+                
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
                 goto done;
@@ -319,23 +352,60 @@ load (const char *file_name, void (**eip) (void), void **esp)
           break;
         }
     }
-
+  
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
-
-  /*TODO: construct stack*/
   
+  char *argvAddress[100];
+  int totalLen = 0;
+  for(int i = argc-1; i >= 0; i--){
+    *esp = *esp - (strlen(argv[i]) + 1);
+    totalLen += (strlen(argv[i])+1);
+    argvAddress[i] = *esp;
+    strlcpy(*esp, argv[i], strlen(argv[i])+1);
+    //printf("\n\n parsing command to stack \n\n");
+  }
+
+  //printf("\n\n %d \n\n", argc);
+
+  if(totalLen % 4 != 0){
+    int alignment = 4 - (totalLen % 4);
+    //printf("\n\n alignment : %d \n\n", alignment);
+    *esp = *esp - alignment;
+  }
+
+  *esp = *esp - 4;
+  **(uint32_t**)esp = 0;
+
+  for(int i = argc-1; i >= 0; i--){
+    *esp = *esp - 4;
+    **(uint32_t**)esp = argvAddress[i];
+  }
+
+  *esp = *esp - 4;
+  **(uint32_t**)esp = *esp+4;
+
+  *esp = *esp - 4;
+  **(uint32_t**)esp = argc;
+
+  *esp = *esp - 4;
+  **(uint32_t**)esp = 0;
+
+  //printf("\n\n stack finishied \n\n");
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
 
+  //hex_dump();
+
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   return success;
+  
 }
 
 /* load() helpers. */
@@ -405,6 +475,7 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
+  //printf("\n\n load segment executed \n\n");
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -420,13 +491,16 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       /* Get a page of memory. */
       uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
+      if (kpage == NULL){
+         //printf("\n\nreturnning false \n\n");
         return false;
+      }
 
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
           palloc_free_page (kpage);
+          //printf("\n\nreturnning false \n\n");
           return false; 
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
@@ -435,6 +509,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       if (!install_page (upage, kpage, writable)) 
         {
           palloc_free_page (kpage);
+          //printf("\n\nreturnning false \n\n");
           return false; 
         }
 
@@ -443,6 +518,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
+    //printf("\n\nreturnning true \n\n");
   return true;
 }
 

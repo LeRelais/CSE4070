@@ -1,0 +1,5 @@
+https://for-development.tistory.com/19?category=918370
+
+https://m.blog.naver.com/PostView.naver?isHttpsRedirect=true&blogId=adobeillustrator&logNo=220843740425
+
+https://github.com/st2092/pintos-user-programs/blob/master/src/userprog/syscall.c#L515
