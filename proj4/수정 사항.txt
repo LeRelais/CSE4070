@@ -1,0 +1,20 @@
+pintos 수정사항
+11-29
+load_segment () 함수와 setup_stack () 함수를 수정했다. 
+load_segment에서는 VM모드로 실행되면 page entry를 새로 만들어서 현재 thread의 load된 page 정보를 저장하는 virtualMemoryTable hash list에 insert하고 insert가 성공했다면 true를, 아니라면 false를 return한다. 
+
+setup_stack()에서는 기존의 physical address에 direct하게 page를 할당하는 방법에서 page_entry를 생성하여 virtualMemoryTable (= page table)에서 관리하는 방법으로 바뀔 수 있게 했다. (예정)
+
+11-30
+frame.c 에서 second chance algorithm을 통한 replacement를 구현 중 
+victimFrame이 지금 가리키고 있는 PAGE_ENTRY가 reference 중이 아니고 최근에 access되지 않았다면 그걸 그냥 replace하고
+아니라면 while(1)을 통해 조건을 만족하는 PAGE_ENTRY를 frame_list를 순회하면서 찾아야 함. 
+여기서 중요한 점은 순회를 하다가 frame_list의 end에 도착하면 FIFO에서와 같이 제일 앞에 있는 entry의 정보를 삭제하고 page의 allocation을 진행하려는 의도로 코드를 구현하고 있었음
+
+Makefile.build 파일에 dependency 추가
+vm_SRC = vm/page.c
+vm_SRC += vm/frame.c
+vm_SRC += vm/swap.c
+
+12/03
+https://github.com/kshired/pintos#project-4--virtual-memory
